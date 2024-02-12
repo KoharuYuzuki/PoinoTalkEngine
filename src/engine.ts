@@ -189,9 +189,8 @@ export class PoinoTalkEngine {
     let kanaDataArray = this.textAnalyzer.analyze(text)
     let phonemeDataArray = this.kanaDataToPhonemeData(kanaDataArray)
     const phonemeTensor = tf.tidy(() => this.genPhonemeTensor(phonemeDataArray, this.slidingWinLen))
-    let promise: Promise<Float32Array> = Promise.resolve(new Float32Array())
 
-    tf.tidy(() => {
+    const predicted = tf.tidy(() => {
       if (this.durationModel === null) {
         throw new Error(
           `duration model is null, "${this.loadMlModels.name}" must be called first`
@@ -199,14 +198,15 @@ export class PoinoTalkEngine {
       }
 
       const predicted = this.durationModel.apply(phonemeTensor, { training: false }) as tf.Tensor
-      promise = predicted.data() as Promise<Float32Array>
 
-      phonemeTensor.dispose()
-      predicted.dispose()
+      tf.keep(phonemeTensor)
+      tf.keep(predicted)
+
+      return predicted
     })
 
     return new Promise<KanaData[]>((resolve, reject) => {
-      promise
+      (predicted.data() as Promise<Float32Array>)
       .then((lengths) => {
         phonemeDataArray = phonemeDataArray.map(({phoneme, accent}, index) => ({
           phoneme: phoneme,
@@ -217,6 +217,10 @@ export class PoinoTalkEngine {
         resolve(kanaDataArray)
       })
       .catch(reject)
+      .finally(() => {
+        phonemeTensor.dispose()
+        predicted.dispose()
+      })
     })
   }
 
@@ -262,7 +266,13 @@ export class PoinoTalkEngine {
           )
         }
 
-        return this.f0Model.apply([phonemeTensor, accentTensor], { training: false }) as tf.Tensor
+        const predicted = this.f0Model.apply([phonemeTensor, accentTensor], { training: false }) as tf.Tensor
+
+        tf.keep(phonemeTensor)
+        tf.keep(accentTensor)
+        tf.keep(predicted)
+
+        return predicted
       })
 
       const volPredicted = tf.tidy(() => {
@@ -272,17 +282,30 @@ export class PoinoTalkEngine {
           )
         }
 
-        return this.volumeModel.apply([phonemeTensor, accentTensor], { training: false }) as tf.Tensor
+        const predicted = this.volumeModel.apply([phonemeTensor, accentTensor], { training: false }) as tf.Tensor
+
+        tf.keep(phonemeTensor)
+        tf.keep(accentTensor)
+        tf.keep(predicted)
+
+        return predicted
       })
 
-      f0EnvsPromise = f0Predicted.array() as Promise<number[][]>
-      volEnvsPromise = volPredicted.array() as Promise<number[][]>
+      f0EnvsPromise = (f0Predicted.array() as Promise<number[][]>)
+      volEnvsPromise = (volPredicted.array() as Promise<number[][]>)
 
-      f0Predicted.dispose()
-      volPredicted.dispose()
+      Promise.all([f0EnvsPromise, volEnvsPromise])
+      .finally(() => {
+        phonemeTensor.dispose()
+        accentTensor.dispose()
+        f0Predicted.dispose()
+        volPredicted.dispose()
+      })
     }
 
     const promise = new Promise<Float32Array>((resolve, reject) => {
+      let waveVolAdjusted: tf.Tensor
+
       Promise.all([f0EnvsPromise, volEnvsPromise])
       .then(([f0Envs, volEnvs]) => {
         if (!useSpecifiedEnvs) {
@@ -340,7 +363,7 @@ export class PoinoTalkEngine {
           return wave
         })
 
-        const waveVolAdjusted = this.adjustVolume(wave, config.volume)
+        waveVolAdjusted = this.adjustVolume(wave, config.volume)
 
         return waveVolAdjusted.data() as Promise<Float32Array>
       })
@@ -349,6 +372,7 @@ export class PoinoTalkEngine {
         resolve(wav)
       })
       .catch(reject)
+      .finally(() => waveVolAdjusted.dispose())
     })
 
     return promise
