@@ -624,7 +624,10 @@ export class PoinoTalkEngine {
       freqMags.push(f0Avg / baseFreq)
     }
 
-    const freqsTensor = tf.tensor(freqs).reshape([-1, 1])
+    const freqsTensor = tf.tidy(() => {
+      return tf.add([freqs], [0]).reshape([-1, 1])
+    })
+
     const phaseTensor = tf.tidy(() => {
       return tf.divNoNan(
         [Math.PI],
