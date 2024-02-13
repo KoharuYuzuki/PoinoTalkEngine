@@ -373,15 +373,22 @@ export const accents = [
   'low'
 ] as const
 
+export const speakerIds = [
+  'laychie',
+  'layney'
+] as const
+
 export type KanaEnum    = typeof kanas[number]
 export type PhonemeEnum = typeof phonemes[number]
 export type EnvKeyEnum  = typeof envKeys[number]
 export type AccentEnum  = typeof accents[number]
+export type SpeakerIdEnum = typeof speakerIds[number]
 
 export const kanaEnumSchema    = z.enum(kanas)
 export const phonemeEnumSchema = z.enum(phonemes)
 export const envKeyEnumSchema  = z.enum(envKeys)
 export const accentEnumSchema  = z.enum(accents)
+export const speakerIdEnumSchema = z.enum(speakerIds)
 
 export const lengthSchema  = z.number().min(0).max(10)
 export const lengthsSchema = z.array(lengthSchema)
