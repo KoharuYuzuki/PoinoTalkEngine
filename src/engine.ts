@@ -240,7 +240,9 @@ export class PoinoTalkEngine {
     const channels = 1
     const dtype    = Float32Array
 
-    if (analyzedData.length <= 0) {
+    const totalLength = sum(analyzedData.flatMap((data) => data.lengths))
+
+    if (totalLength <= 0) {
       const raw = new Float32Array()
       const wav = raw2wav<Float32Array>(raw, fs, channels, dtype)
       return Promise.resolve(wav)
