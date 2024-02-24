@@ -514,11 +514,11 @@ export class PoinoTalkEngine {
     const volEnvsLen = volEnvs.length
 
     if (f0EnvsLen !== phonemeDataLen) {
-      throw new Error('length of "f0Env" does not match the length of "data"')
+      throw new Error('length of "f0Env" does not match the length of "phonemeData"')
     }
 
     if (volEnvsLen !== phonemeDataLen) {
-      throw new Error('length of "volEnv" does not match the length of "data"')
+      throw new Error('length of "volEnv" does not match the length of "phonemeData"')
     }
 
     speakerVoiceSchema.parse(voice)
