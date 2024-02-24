@@ -309,7 +309,7 @@ export class PoinoTalkEngine {
     }
 
     const promise = new Promise<Float32Array>((resolve, reject) => {
-      let waveVolAdjusted: tf.Tensor
+      let waveVolAdjusted: tf.Tensor | null = null
 
       Promise.all([f0EnvsPromise, volEnvsPromise])
       .then(([f0Envs, volEnvs]) => {
@@ -389,7 +389,7 @@ export class PoinoTalkEngine {
         }
       })
       .catch(reject)
-      .finally(() => waveVolAdjusted.dispose())
+      .finally(() => waveVolAdjusted?.dispose())
     })
 
     return promise
