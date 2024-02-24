@@ -813,7 +813,7 @@ export class PoinoTalkEngine {
     volume: number
   ) {
     return tf.tidy(() => {
-      const waveMax = tf.max(wave)
+      const waveMax = tf.max(tf.abs(wave))
       const adapter = tf.divNoNan([volume], waveMax)
       const multiplied = tf.mul(wave, adapter)
 
