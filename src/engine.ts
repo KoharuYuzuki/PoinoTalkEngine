@@ -161,7 +161,8 @@ export class PoinoTalkEngine {
     speakerVoice: SpeakerVoice,
     config: SynthConfig,
     f0Env?: number[][],
-    volEnv?: number[][]
+    volEnv?: number[][],
+    raw?: boolean
   ) {
     let synthesizePromise: Promise<Float32Array> = Promise.resolve(new Float32Array())
 
@@ -171,7 +172,8 @@ export class PoinoTalkEngine {
         speakerVoice,
         config,
         f0Env,
-        volEnv
+        volEnv,
+        raw
       )
     })
 
@@ -229,7 +231,8 @@ export class PoinoTalkEngine {
     speakerVoice: SpeakerVoice,
     config: SynthConfig,
     f0Envs?: number[][],
-    volEnvs?: number[][]
+    volEnvs?: number[][],
+    raw?: boolean
   ) {
     kanaDataArraySchema.parse(analyzedData)
     speakerVoiceSchema.parse(speakerVoice)
@@ -378,8 +381,12 @@ export class PoinoTalkEngine {
         return waveVolAdjusted.data() as Promise<Float32Array>
       })
       .then((wave) => {
-        const wav = raw2wav<Float32Array>(wave, fs, channels, dtype)
-        resolve(wav)
+        if (raw) {
+          resolve(wave)
+        } else {
+          const wav = raw2wav<Float32Array>(wave, fs, channels, dtype)
+          resolve(wav)
+        }
       })
       .catch(reject)
       .finally(() => waveVolAdjusted.dispose())
