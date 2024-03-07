@@ -105,6 +105,10 @@ export class PoinoTalkEngine {
     this.textAnalyzer.loadUserDict(dict)
   }
 
+  clearUserDict() {
+    this.textAnalyzer.clearUserDict()
+  }
+
   loadMlModels(
     modelJsonPaths: { [key in 'duration' | 'f0' | 'volume']: string },
     options?: MlModelOptions

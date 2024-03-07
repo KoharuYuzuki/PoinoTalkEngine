@@ -63,6 +63,10 @@ export class TextAnalyzer {
     this.loadOptiDict(dict, 'user')
   }
 
+  clearUserDict() {
+    this.userDict = {}
+  }
+
   analyze(text: string) {
     const optiDictApplied = this.applyOptiDict(text)
 
