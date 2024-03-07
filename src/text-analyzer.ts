@@ -36,53 +36,23 @@ export class TextAnalyzer {
     )
   }
 
-  loadOpenjlabelDict(filePaths: string[]) {
-    const dictReadingPromises = filePaths.map((filePath) => {
-      return new Promise<{
-        fileName: string
-        data: Uint8Array
-      }>((resolve, reject) => {
-        fetch(filePath)
-        .then((res) => res.arrayBuffer())
-        .then((arrayBuffer) => {
-          const fileName = basename(filePath)
-          const data = new Uint8Array(arrayBuffer)
+  loadOpenjlabelDict(files: { fileName: string, data: Uint8Array }[]) {
+    if (this.openjlabelInstance === null) {
+      throw new Error(
+        `openjlabel instance is null, "${this.init.name}" must be called first`
+      )
+    }
 
-          resolve({
-            fileName,
-            data
-          })
-        })
-        .catch(reject)
-      })
+    const memoryFS = this.openjlabelInstance.FS
+
+    memoryFS.mkdir(this.openjlabelDictDirPath)
+
+    files.forEach((file) => {
+      const dictFilePath = join(this.openjlabelDictDirPath, file.fileName)
+      const data = file.data
+
+      memoryFS.writeFile(dictFilePath, data)
     })
-
-    const loadingPromise =
-      Promise.all(dictReadingPromises)
-      .then((dictFiles) => {
-        if (this.openjlabelInstance === null) {
-          return Promise.reject(
-            `openjlabel instance is null, "${this.init.name}" must be called first`
-          )
-        }
-
-        const memoryFS = this.openjlabelInstance.FS
-
-        memoryFS.mkdir(this.openjlabelDictDirPath)
-
-        dictFiles.forEach((dictFile) => {
-          const fileName = dictFile.fileName
-          const data = dictFile.data
-          const dictFilePath = join(this.openjlabelDictDirPath, fileName)
-
-          memoryFS.writeFile(dictFilePath, data)
-        })
-
-        return Promise.resolve()
-      })
-      .catch(console.error)
-
-    return loadingPromise
   }
 
   loadSystemDict(dict: OptiDict) {

@@ -93,16 +93,8 @@ export class PoinoTalkEngine {
     )
   }
 
-  loadOpenjlabelDict(filePaths: string[]) {
-    return this.textAnalyzer.loadOpenjlabelDict(
-      filePaths.map((filePath) => {
-        if (isBrowser) {
-          return filePath
-        } else {
-          return `file://${resolve(filePath)}`
-        }
-      })
-    )
+  loadOpenjlabelDict(files: { fileName: string, data: Uint8Array }[]) {
+    return this.textAnalyzer.loadOpenjlabelDict(files)
   }
 
   private loadSystemDict(dict: OptiDict) {
