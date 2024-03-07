@@ -1,6 +1,6 @@
 import openjlabel from 'openjlabel'
 import type { OpenjlabelInstance } from 'openjlabel'
-import { basename, join } from 'pathe'
+import { join } from 'pathe'
 import { optiDictSchema, kanas, phonemes, romajis } from './schemata'
 import type { OptiDict, KanaData, PhonemeData, PhonemeEnum } from './schemata'
 import { isString } from './utils'
