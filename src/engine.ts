@@ -256,16 +256,7 @@ export class PoinoTalkEngine {
       f0EnvsPromise = Promise.resolve(f0Envs)
       volEnvsPromise = Promise.resolve(volEnvs)
     } else {
-      const kanaData: KanaData[] = [
-        {
-          kana:    '、',
-          accent:  'low',
-          lengths: [0]
-        },
-        ...analyzedData
-      ]
-
-      const phonemeDataArray = this.kanaDataToPhonemeData(kanaData)
+      const phonemeDataArray = this.kanaDataToPhonemeData(analyzedData)
       const phonemeTensor = tf.tidy(() => this.genPhonemeTensor(phonemeDataArray, this.slidingWinLen))
       const accentTensor = tf.tidy(() => this.genAccentTensor(phonemeDataArray, this.slidingWinLen))
 
@@ -322,8 +313,8 @@ export class PoinoTalkEngine {
           const f0NormMax = this.f0NormMax
           const pitch = config.pitch
 
-          f0Envs = f0Envs.map((env) => interpZeros(env).map((value) => value * f0NormMax * pitch)).slice(1)
-          volEnvs = volEnvs.map((env) => interpZeros(env)).slice(1)
+          f0Envs = f0Envs.map((env) => interpZeros(env).map((value) => value * f0NormMax * pitch))
+          volEnvs = volEnvs.map((env) => interpZeros(env))
         }
 
         const envKeyData = this.genEnvKeyData(
