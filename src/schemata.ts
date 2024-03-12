@@ -505,7 +505,7 @@ export const synthConfigSchema = z.object({
 
 export const mlModelOptionsSchema = z.object({
   slidingWinLen:   z.number().int().positive(),
-  f0ModelBaseFreq: z.number().int().min(100).max(1000),
+  f0ModelBaseFreq: z.number().min(100).max(1000),
   f0NormMax:       z.number().positive()
 })
 
