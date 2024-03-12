@@ -39,7 +39,7 @@ export class TextAnalyzer {
   loadOpenjlabelDict(files: { fileName: string, data: Uint8Array }[]) {
     if (this.openjlabelInstance === null) {
       throw new Error(
-        `openjlabel instance is null, "${this.init.name}" must be called first`
+        `openjlabel instance is null, call "${this.loadOpenjlabelDict.name}" after calling "${this.init.name}"`
       )
     }
 
@@ -137,7 +137,7 @@ export class TextAnalyzer {
   private textToKanaData(text: string) {
     if (this.openjlabelInstance === null) {
       throw new Error(
-        `openjlabel instance is null, "${this.init.name}" must be called first`
+        `openjlabel instance is null, call "${this.textToKanaData.name}" after calling "${this.init.name}"`
       )
     }
 

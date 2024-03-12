@@ -188,7 +188,7 @@ export class PoinoTalkEngine {
     const phonemeTensor = tf.tidy(() => {
       if (this.slidingWinLen === null) {
         throw new Error(
-          `slidingWinLen is null, "${this.loadMlModels.name}" must be called first`
+          `sliding win len is null, call "${this.analyzeText.name}" after calling "${this.loadMlModels.name}"`
         )
       }
 
@@ -198,7 +198,7 @@ export class PoinoTalkEngine {
     const predicted = tf.tidy(() => {
       if (this.durationModel === null) {
         throw new Error(
-          `duration model is null, "${this.loadMlModels.name}" must be called first`
+          `duration model is null, call "${this.analyzeText.name}" after calling "${this.loadMlModels.name}"`
         )
       }
 
@@ -268,7 +268,7 @@ export class PoinoTalkEngine {
       const phonemeTensor = tf.tidy(() => {
         if (this.slidingWinLen === null) {
           throw new Error(
-            `slidingWinLen is null, "${this.loadMlModels.name}" must be called first`
+            `sliding win len is null, call "${this.synthesizeVoice.name}" after calling "${this.loadMlModels.name}"`
           )
         }
 
@@ -278,7 +278,7 @@ export class PoinoTalkEngine {
       const accentTensor = tf.tidy(() => {
         if (this.slidingWinLen === null) {
           throw new Error(
-            `slidingWinLen is null, "${this.loadMlModels.name}" must be called first`
+            `sliding win len is null, call "${this.synthesizeVoice.name}" after calling "${this.loadMlModels.name}"`
           )
         }
 
@@ -288,7 +288,7 @@ export class PoinoTalkEngine {
       const f0Predicted = tf.tidy(() => {
         if (this.f0Model === null) {
           throw new Error(
-            `f0 model is null, "${this.loadMlModels.name}" must be called first`
+            `f0 model is null, call "${this.synthesizeVoice.name}" after calling "${this.loadMlModels.name}"`
           )
         }
 
@@ -304,7 +304,7 @@ export class PoinoTalkEngine {
       const volPredicted = tf.tidy(() => {
         if (this.volumeModel === null) {
           throw new Error(
-            `volume model is null, "${this.loadMlModels.name}" must be called first`
+            `volume model is null, call "${this.synthesizeVoice.name}" after calling "${this.loadMlModels.name}"`
           )
         }
 
@@ -337,7 +337,7 @@ export class PoinoTalkEngine {
         if (!useSpecifiedEnvs) {
           if (this.f0NormMax === null) {
             throw new Error(
-              `f0NormMax is null, "${this.loadMlModels.name}" must be called first`
+              `f0 norm max is null, call "${this.synthesizeVoice.name}" after calling "${this.loadMlModels.name}"`
             )
           }
 
@@ -358,7 +358,7 @@ export class PoinoTalkEngine {
 
         if (this.f0ModelBaseFreq === null) {
           throw new Error(
-            `f0ModelBaseFreq is null, "${this.loadMlModels.name}" must be called first`
+            `f0 model base freq is null, call "${this.synthesizeVoice.name}" after calling "${this.loadMlModels.name}"`
           )
         }
 
