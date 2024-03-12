@@ -447,9 +447,9 @@ export interface SynthConfig {
 }
 
 export interface MlModelOptions {
-  slidingWinLen?:   number
-  f0ModelBaseFreq?: number
-  f0NormMax?:       number
+  slidingWinLen:   number
+  f0ModelBaseFreq: number
+  f0NormMax:       number
 }
 
 export const kanaDataArraySchema = z.array(
@@ -504,9 +504,9 @@ export const synthConfigSchema = z.object({
 })
 
 export const mlModelOptionsSchema = z.object({
-  slidingWinLen:   z.number().int().positive().optional(),
-  f0ModelBaseFreq: z.number().int().min(100).max(1000).optional(),
-  f0NormMax:       z.number().positive().optional()
+  slidingWinLen:   z.number().int().positive(),
+  f0ModelBaseFreq: z.number().int().min(100).max(1000),
+  f0NormMax:       z.number().positive()
 })
 
 checkType<KanaEnum>(kanaEnumSchema)

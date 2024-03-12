@@ -26,9 +26,9 @@ export class PoinoTalkEngine {
   private f0Model:       tf.LayersModel | null
   private volumeModel:   tf.LayersModel | null
 
-  private slidingWinLen:   number
-  private f0ModelBaseFreq: number
-  private f0NormMax:       number
+  private slidingWinLen:   number | null
+  private f0ModelBaseFreq: number | null
+  private f0NormMax:       number | null
 
   constructor() {
     this.textAnalyzer = new TextAnalyzer()
@@ -38,9 +38,9 @@ export class PoinoTalkEngine {
     this.f0Model       = null
     this.volumeModel   = null
 
-    this.slidingWinLen   = 3
-    this.f0ModelBaseFreq = 400
-    this.f0NormMax       = 1000
+    this.slidingWinLen   = null
+    this.f0ModelBaseFreq = null
+    this.f0NormMax       = null
   }
 
   init(initTextAnalyzer: boolean = true) {
@@ -111,15 +111,13 @@ export class PoinoTalkEngine {
 
   loadMlModels(
     modelJsonPaths: { [key in 'duration' | 'f0' | 'volume']: string },
-    options?: MlModelOptions
+    options: MlModelOptions
   ) {
-    if (options) {
-      mlModelOptionsSchema.parse(options)
+    mlModelOptionsSchema.parse(options)
 
-      if ('slidingWinLen'   in options) this.slidingWinLen   = options.slidingWinLen   as number
-      if ('f0ModelBaseFreq' in options) this.f0ModelBaseFreq = options.f0ModelBaseFreq as number
-      if ('f0NormMax'       in options) this.f0NormMax       = options.f0NormMax       as number
-    }
+    this.slidingWinLen   = options.slidingWinLen
+    this.f0ModelBaseFreq = options.f0ModelBaseFreq
+    this.f0NormMax       = options.f0NormMax
 
     if (!isBrowser) {
       modelJsonPaths.duration = `file://${resolve(modelJsonPaths.duration)}`
@@ -186,7 +184,16 @@ export class PoinoTalkEngine {
   private _analyzeText(text: string) {
     let kanaDataArray = this.textAnalyzer.analyze(text)
     let phonemeDataArray = this.kanaDataToPhonemeData(kanaDataArray)
-    const phonemeTensor = tf.tidy(() => this.genPhonemeTensor(phonemeDataArray, this.slidingWinLen))
+
+    const phonemeTensor = tf.tidy(() => {
+      if (this.slidingWinLen === null) {
+        throw new Error(
+          `slidingWinLen is null, "${this.loadMlModels.name}" must be called first`
+        )
+      }
+
+      return this.genPhonemeTensor(phonemeDataArray, this.slidingWinLen)
+    })
 
     const predicted = tf.tidy(() => {
       if (this.durationModel === null) {
@@ -257,8 +264,26 @@ export class PoinoTalkEngine {
       volEnvsPromise = Promise.resolve(volEnvs)
     } else {
       const phonemeDataArray = this.kanaDataToPhonemeData(analyzedData)
-      const phonemeTensor = tf.tidy(() => this.genPhonemeTensor(phonemeDataArray, this.slidingWinLen))
-      const accentTensor = tf.tidy(() => this.genAccentTensor(phonemeDataArray, this.slidingWinLen))
+
+      const phonemeTensor = tf.tidy(() => {
+        if (this.slidingWinLen === null) {
+          throw new Error(
+            `slidingWinLen is null, "${this.loadMlModels.name}" must be called first`
+          )
+        }
+
+        return this.genPhonemeTensor(phonemeDataArray, this.slidingWinLen)
+      })
+
+      const accentTensor = tf.tidy(() => {
+        if (this.slidingWinLen === null) {
+          throw new Error(
+            `slidingWinLen is null, "${this.loadMlModels.name}" must be called first`
+          )
+        }
+
+        return this.genAccentTensor(phonemeDataArray, this.slidingWinLen)
+      })
 
       const f0Predicted = tf.tidy(() => {
         if (this.f0Model === null) {
@@ -310,6 +335,12 @@ export class PoinoTalkEngine {
       Promise.all([f0EnvsPromise, volEnvsPromise])
       .then(([f0Envs, volEnvs]) => {
         if (!useSpecifiedEnvs) {
+          if (this.f0NormMax === null) {
+            throw new Error(
+              `f0NormMax is null, "${this.loadMlModels.name}" must be called first`
+            )
+          }
+
           const f0NormMax = this.f0NormMax
           const pitch = config.pitch
 
@@ -324,6 +355,12 @@ export class PoinoTalkEngine {
           voice,
           config.speed
         )
+
+        if (this.f0ModelBaseFreq === null) {
+          throw new Error(
+            `f0ModelBaseFreq is null, "${this.loadMlModels.name}" must be called first`
+          )
+        }
 
         const lengths     = envKeyData.map(({length}) => length)
         const times       = lengths.map((_, index, array) => sum(array.slice(0, index + 1)))
