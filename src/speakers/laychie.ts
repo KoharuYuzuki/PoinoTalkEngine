@@ -1,7 +1,7 @@
 import { int } from '../utils'
 import type { SpeakerVoice } from '../schemata'
 
-const fs = 48000
+const fs = 24000
 
 export const laychieVoice: Readonly<SpeakerVoice> = {
   fs:       fs,
