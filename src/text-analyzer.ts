@@ -103,7 +103,10 @@ export class TextAnalyzer {
   }
 
   private applyOptiDict(text: string) {
-    const dictionaries = [this.userDict, this.systemDict]
+    const dictionaries = [
+      Object.fromEntries(Object.entries(this.userDict).sort((a, b) => a[0].length - b[0].length)),
+      Object.fromEntries(Object.entries(this.systemDict).sort((a, b) => a[0].length - b[0].length))
+    ]
     let applied: (KanaData[] | string)[] = [text]
 
     dictionaries.forEach((dict) => {
