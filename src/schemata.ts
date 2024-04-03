@@ -4,6 +4,8 @@ const checkType = <T>(schema: z.ZodType<T>) => schema
 const checkEven = (value: number) => (value % 2) === 0
 const evenMsg   = (value: number) => ({ message: `${value} is not an even number` })
 
+const phonemeGroupPartition = '=== partition ==='
+
 export const kanas = [
   '、',
   'きゃ',
@@ -155,44 +157,65 @@ export const kanas = [
 export const phonemes = [
   'sil',
   'pau',
+  phonemeGroupPartition,
   'a',
   'i',
   'u',
   'e',
   'o',
+  phonemeGroupPartition,
   'N',
+  phonemeGroupPartition,
   'k',
   'kw',
   'ky',
+  phonemeGroupPartition,
   's',
   'sh',
+  phonemeGroupPartition,
   't',
   'ts',
   'ty',
+  phonemeGroupPartition,
   'ch',
+  phonemeGroupPartition,
   'n',
   'ny',
+  phonemeGroupPartition,
   'h',
   'hy',
+  phonemeGroupPartition,
   'm',
   'my',
+  phonemeGroupPartition,
   'y',
+  phonemeGroupPartition,
   'r',
   'ry',
+  phonemeGroupPartition,
   'w',
+  phonemeGroupPartition,
   'b',
   'by',
+  phonemeGroupPartition,
   'd',
   'dy',
+  phonemeGroupPartition,
   'g',
   'gw',
   'gy',
+  phonemeGroupPartition,
   'j',
+  phonemeGroupPartition,
   'v',
+  phonemeGroupPartition,
   'f',
+  phonemeGroupPartition,
   'z',
+  phonemeGroupPartition,
   'p',
   'py',
+  phonemeGroupPartition,
   'cl'
 ] as const
 
@@ -379,13 +402,13 @@ export const speakerIds = [
 ] as const
 
 export type KanaEnum      = typeof kanas[number]
-export type PhonemeEnum   = typeof phonemes[number]
+export type PhonemeEnum   = Exclude<typeof phonemes[number], typeof phonemeGroupPartition>
 export type EnvKeyEnum    = typeof envKeys[number]
 export type AccentEnum    = typeof accents[number]
 export type SpeakerIdEnum = typeof speakerIds[number]
 
 export const kanaEnumSchema      = z.enum(kanas)
-export const phonemeEnumSchema   = z.enum(phonemes)
+export const phonemeEnumSchema   = z.enum(phonemes).exclude([phonemeGroupPartition])
 export const envKeyEnumSchema    = z.enum(envKeys)
 export const accentEnumSchema    = z.enum(accents)
 export const speakerIdEnumSchema = z.enum(speakerIds)
