@@ -665,13 +665,6 @@ export class PoinoTalkEngine {
       return tf.add([freqs], [0]).reshape([-1, 1])
     })
 
-    const phaseTensor = tf.tidy(() => {
-      return tf.divNoNan(
-        [Math.PI],
-        tf.randomUniform(freqsTensor.shape)
-      )
-    })
-
     const sinWaveSegs: tf.Tensor[] = []
     let prevEnd = 0
 
@@ -681,12 +674,9 @@ export class PoinoTalkEngine {
       const time = linspace(begin, end, segLen + 1).slice(1)
       const sinWave = tf.tidy(() => {
         return tf.sin(
-          tf.add(
-            tf.mul(
-              tf.mul([2 * Math.PI], freqsTensor),
-              time
-            ),
-            phaseTensor
+          tf.mul(
+            tf.mul([2 * Math.PI], freqsTensor),
+            time
           )
         )
       })
@@ -695,7 +685,6 @@ export class PoinoTalkEngine {
     }
 
     freqsTensor.dispose()
-    phaseTensor.dispose()
 
     return tf.tidy(() => {
       const sinWaves = tf.concat(sinWaveSegs, 1)
