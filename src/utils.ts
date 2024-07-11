@@ -34,31 +34,31 @@ export function seq2seg (
   checkPositiveInt(hopLen)
 
   const sequenceLen = sequence.shape[0]
-  const segumentsLen = computeSeq2segLen(sequenceLen, segLen, hopLen)
-  const seguments: tf.Tensor[] = []
+  const segmentsLen = computeSeq2segLen(sequenceLen, segLen, hopLen)
+  const segments: tf.Tensor[] = []
 
-  for (let i = 0; i < segumentsLen; i++) {
+  for (let i = 0; i < segmentsLen; i++) {
     const begin = hopLen * i
     const end = begin + segLen
 
-    let segument = sequence.slice(
+    let segment = sequence.slice(
       (begin >= 0) ? begin : 0,
       (end <= sequenceLen) ? segLen: sequenceLen - begin
     )
-    const segumentLen = segument.shape[0]
+    const segmentLen = segment.shape[0]
 
-    if (segumentLen < segLen) {
-      const padding = tf.zeros([segLen - segumentLen, ...sequence.shape.slice(1)])
-      segument = segument.concat(padding)
+    if (segmentLen < segLen) {
+      const padding = tf.zeros([segLen - segmentLen, ...sequence.shape.slice(1)])
+      segment = segment.concat(padding)
       padding.dispose()
     }
 
-    seguments.push(segument)
+    segments.push(segment)
   }
 
   const concatenated = tf.tidy(() => {
-    const concatenated = tf.concat(seguments).reshape([segumentsLen, segLen])
-    tf.dispose(seguments)
+    const concatenated = tf.concat(segments).reshape([segmentsLen, segLen])
+    tf.dispose(segments)
     return concatenated
   })
 
@@ -66,32 +66,32 @@ export function seq2seg (
 }
 
 export function seg2seq (
-  seguments: tf.Tensor,
+  segments: tf.Tensor,
   segLen: number,
   hopLen: number
 ) {
   checkPositiveInt(segLen)
   checkPositiveInt(hopLen)
 
-  const segumentsLen = seguments.shape[0]
-  const sequenceLen = computeSeg2seqLen(segumentsLen, segLen, hopLen)
-  let sequence = tf.zeros([sequenceLen, ...seguments.shape.slice(2)])
+  const segmentsLen = segments.shape[0]
+  const sequenceLen = computeSeg2seqLen(segmentsLen, segLen, hopLen)
+  let sequence = tf.zeros([sequenceLen, ...segments.shape.slice(2)])
 
-  for (let i = 0; i < segumentsLen; i++) {
+  for (let i = 0; i < segmentsLen; i++) {
     const begin = hopLen * i
     const end = begin + segLen
 
-    const segument = seguments.slice(i, 1).reshape([-1, ...seguments.shape.slice(2)])
-    const paddingBefore = tf.zeros([begin, ...segument.shape.slice(1)])
-    const paddingAfter = tf.zeros([sequenceLen - end, ...segument.shape.slice(1)])
+    const segment = segments.slice(i, 1).reshape([-1, ...segments.shape.slice(2)])
+    const paddingBefore = tf.zeros([begin, ...segment.shape.slice(1)])
+    const paddingAfter = tf.zeros([sequenceLen - end, ...segment.shape.slice(1)])
 
     sequence = tf.tidy(() => {
       const merged = tf.add(
         sequence,
-        tf.concat([paddingBefore, segument, paddingAfter])
+        tf.concat([paddingBefore, segment, paddingAfter])
       )
       sequence.dispose()
-      segument.dispose()
+      segment.dispose()
       paddingBefore.dispose()
       paddingAfter.dispose()
       return merged
@@ -118,30 +118,30 @@ export function computeSeq2segLen (
 }
 
 export function computeSeg2seqLen (
-  segumentsLen: number,
+  segmentsLen: number,
   segLen: number,
   hopLen: number
 ) {
-  checkPositiveInt(segumentsLen)
+  checkPositiveInt(segmentsLen)
   checkPositiveInt(segLen)
   checkPositiveInt(hopLen)
 
-  return hopLen * (segumentsLen - 1) + segLen
+  return hopLen * (segmentsLen - 1) + segLen
 }
 
-export function adaptVolume (seguments: tf.Tensor, volumeSrc: tf.Tensor) {
+export function adaptVolume (segments: tf.Tensor, volumeSrc: tf.Tensor) {
   const adapter = tf.tidy(() => {
     const volumeSrcMax = tf.max(tf.abs(volumeSrc), 1)
-    const segumentsMax = tf.max(tf.abs(seguments), 1)
-    const adapter = tf.divNoNan(volumeSrcMax, segumentsMax).reshape([-1, 1])
+    const segmentsMax = tf.max(tf.abs(segments), 1)
+    const adapter = tf.divNoNan(volumeSrcMax, segmentsMax).reshape([-1, 1])
 
     volumeSrcMax.dispose()
-    segumentsMax.dispose()
+    segmentsMax.dispose()
 
     return adapter
   })
 
-  const adapted = tf.tidy(() => tf.mul(seguments, adapter))
+  const adapted = tf.tidy(() => tf.mul(segments, adapter))
 
   return adapted
 }
