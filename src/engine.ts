@@ -1,69 +1,55 @@
 import * as tf from '@tensorflow/tfjs'
 import { TextAnalyzer } from './text-analyzer'
 import {
-  mlModelOptionsSchema, kanas, phonemes, romajis,
-  kanaDataArraySchema, speakerVoiceSchema, synthConfigSchema
+  mlModelOptionsSchema, kanas, phonemes, romajis, envKeyVolumes,
+  kanaDataArraySchema, speakerVoiceSchema, synthConfigSchema, f0SegSchema
 } from './schemata'
 import type {
   MlModelOptions, OptiDict, KanaData, PhonemeData, EnvKeyData,
   PhonemeEnum, EnvKeyEnum, SpeakerVoice, SynthConfig
 } from './schemata'
 import {
-  isBrowser, canUseWebGPU, canUseWebGL, seq2seg, seg2seq,
-  raw2wav, interpZeros, resample, sum, avg, int, linspace, interp,
-  computeSeq2segLen, computeSeg2seqLen, adaptVolume
+  isBrowser, canUseWebGPU, canUseWebGL, seq2seg,
+  raw2wav, interpZeros, resample, sum, int, linspace, interp
 } from './utils'
 import { systemDict } from './system-dict'
 import { laychieVoice } from './speakers/laychie'
 import { layneyVoice } from './speakers/layney'
 import { resolve } from 'pathe'
+import { z } from 'zod'
 
 export class PoinoTalkEngine {
+  private initialized: boolean
   private textAnalyzer: TextAnalyzer
-  private textAnalyzerInitialized: boolean
 
   private durationModel: tf.LayersModel | null
   private f0Model:       tf.LayersModel | null
-  private volumeModel:   tf.LayersModel | null
 
   private slidingWinLen:   number | null
   private f0ModelBaseFreq: number | null
   private f0NormMax:       number | null
 
   constructor() {
+    this.initialized = false
     this.textAnalyzer = new TextAnalyzer()
-    this.textAnalyzerInitialized = false
 
     this.durationModel = null
     this.f0Model       = null
-    this.volumeModel   = null
 
     this.slidingWinLen   = null
     this.f0ModelBaseFreq = null
     this.f0NormMax       = null
   }
 
-  init(initTextAnalyzer: boolean = true) {
-    if (this.textAnalyzerInitialized === true) {
-      throw new Error('text analyzer is already initialized')
+  init() {
+    if (this.initialized === true) {
+      throw new Error('already initialized')
     }
 
-    let promise: Promise<void>
-
-    if (initTextAnalyzer) {
-      this.loadSystemDict(systemDict)
-
-      promise =
-        this.textAnalyzer.init()
-        .then(() => {
-          this.textAnalyzerInitialized = true
-        })
-    } else {
-      promise = Promise.resolve()
-    }
+    this.loadSystemDict(systemDict)
 
     return (
-      promise
+      this.textAnalyzer.init()
       .then(() => {
         if (isBrowser) {
           if (canUseWebGPU) {
@@ -89,7 +75,6 @@ export class PoinoTalkEngine {
         }
       })
       .then(() => tf.ready())
-      .catch(console.error)
     )
   }
 
@@ -110,7 +95,7 @@ export class PoinoTalkEngine {
   }
 
   loadMlModels(
-    modelJsonPaths: { [key in 'duration' | 'f0' | 'volume']: string },
+    modelJsonPaths: { [key in 'duration' | 'f0']: string },
     options: MlModelOptions
   ) {
     mlModelOptionsSchema.parse(options)
@@ -122,19 +107,16 @@ export class PoinoTalkEngine {
     if (!isBrowser) {
       modelJsonPaths.duration = `file://${resolve(modelJsonPaths.duration)}`
       modelJsonPaths.f0       = `file://${resolve(modelJsonPaths.f0)}`
-      modelJsonPaths.volume   = `file://${resolve(modelJsonPaths.volume)}`
     }
 
     return (
       Promise.all([
         tf.loadLayersModel(modelJsonPaths.duration),
-        tf.loadLayersModel(modelJsonPaths.f0),
-        tf.loadLayersModel(modelJsonPaths.volume)
+        tf.loadLayersModel(modelJsonPaths.f0)
       ])
-      .then(([durationModel, f0Model, volumeModel]) => {
+      .then(([durationModel, f0Model]) => {
         this.durationModel = durationModel
         this.f0Model       = f0Model
-        this.volumeModel   = volumeModel
       })
       .catch(console.error)
     )
@@ -153,10 +135,7 @@ export class PoinoTalkEngine {
   synthesizeVoice(
     analyzedData: KanaData[],
     speakerVoice: SpeakerVoice,
-    config: SynthConfig,
-    f0Env?: number[][],
-    volEnv?: number[][],
-    raw?: boolean
+    config: SynthConfig
   ) {
     let synthesizePromise: Promise<Float32Array> = Promise.resolve(new Float32Array())
 
@@ -164,17 +143,14 @@ export class PoinoTalkEngine {
       synthesizePromise = this._synthesizeVoice(
         analyzedData,
         speakerVoice,
-        config,
-        f0Env,
-        volEnv,
-        raw
+        config
       )
     })
 
     return synthesizePromise
   }
 
-  getSpeakers() {
+  static getSpeakers() {
     return {
       laychie: laychieVoice,
       layney:  layneyVoice
@@ -232,10 +208,7 @@ export class PoinoTalkEngine {
   private _synthesizeVoice(
     analyzedData: KanaData[],
     speakerVoice: SpeakerVoice,
-    config: SynthConfig,
-    f0Envs?: number[][],
-    volEnvs?: number[][],
-    raw?: boolean
+    config: SynthConfig
   ) {
     kanaDataArraySchema.parse(analyzedData)
     speakerVoiceSchema.parse(speakerVoice)
@@ -246,115 +219,81 @@ export class PoinoTalkEngine {
     const channels = 1
     const dtype    = Float32Array
 
-    const totalLength = sum(analyzedData.flatMap((data) => data.lengths))
+    const duration = sum(analyzedData.flatMap((data) => data.lengths))
 
-    if (totalLength <= 0) {
-      const raw = new Float32Array()
+    if (duration <= 0) {
+      const raw = new Float32Array(0)
       const wav = raw2wav<Float32Array>(raw, fs, channels, dtype)
       return Promise.resolve(wav)
     }
 
-    let f0EnvsPromise:  Promise<number[][]>
-    let volEnvsPromise: Promise<number[][]>
+    const phonemeDataArray = this.kanaDataToPhonemeData(analyzedData)
 
-    const useSpecifiedEnvs = f0Envs && volEnvs
+    const phonemeTensor = tf.tidy(() => {
+      if (this.slidingWinLen === null) {
+        throw new Error(
+          `sliding win len is null, call "${this.synthesizeVoice.name}" after calling "${this.loadMlModels.name}"`
+        )
+      }
 
-    if (useSpecifiedEnvs) {
-      f0EnvsPromise = Promise.resolve(f0Envs)
-      volEnvsPromise = Promise.resolve(volEnvs)
-    } else {
-      const phonemeDataArray = this.kanaDataToPhonemeData(analyzedData)
+      return this.genPhonemeTensor(phonemeDataArray, this.slidingWinLen)
+    })
 
-      const phonemeTensor = tf.tidy(() => {
-        if (this.slidingWinLen === null) {
-          throw new Error(
-            `sliding win len is null, call "${this.synthesizeVoice.name}" after calling "${this.loadMlModels.name}"`
-          )
-        }
+    const accentTensor = tf.tidy(() => {
+      if (this.slidingWinLen === null) {
+        throw new Error(
+          `sliding win len is null, call "${this.synthesizeVoice.name}" after calling "${this.loadMlModels.name}"`
+        )
+      }
 
-        return this.genPhonemeTensor(phonemeDataArray, this.slidingWinLen)
-      })
+      return this.genAccentTensor(phonemeDataArray, this.slidingWinLen)
+    })
 
-      const accentTensor = tf.tidy(() => {
-        if (this.slidingWinLen === null) {
-          throw new Error(
-            `sliding win len is null, call "${this.synthesizeVoice.name}" after calling "${this.loadMlModels.name}"`
-          )
-        }
+    const f0Predicted = tf.tidy(() => {
+      if (this.f0Model === null) {
+        throw new Error(
+          `f0 model is null, call "${this.synthesizeVoice.name}" after calling "${this.loadMlModels.name}"`
+        )
+      }
 
-        return this.genAccentTensor(phonemeDataArray, this.slidingWinLen)
-      })
+      const predicted = this.f0Model.apply([phonemeTensor, accentTensor], { training: false }) as tf.Tensor
 
-      const f0Predicted = tf.tidy(() => {
-        if (this.f0Model === null) {
-          throw new Error(
-            `f0 model is null, call "${this.synthesizeVoice.name}" after calling "${this.loadMlModels.name}"`
-          )
-        }
+      tf.keep(phonemeTensor)
+      tf.keep(accentTensor)
+      tf.keep(predicted)
 
-        const predicted = this.f0Model.apply([phonemeTensor, accentTensor], { training: false }) as tf.Tensor
+      return predicted
+    })
 
-        tf.keep(phonemeTensor)
-        tf.keep(accentTensor)
-        tf.keep(predicted)
+    const f0EnvsPromise = (f0Predicted.array() as Promise<number[][]>)
 
-        return predicted
-      })
-
-      const volPredicted = tf.tidy(() => {
-        if (this.volumeModel === null) {
-          throw new Error(
-            `volume model is null, call "${this.synthesizeVoice.name}" after calling "${this.loadMlModels.name}"`
-          )
-        }
-
-        const predicted = this.volumeModel.apply([phonemeTensor, accentTensor], { training: false }) as tf.Tensor
-
-        tf.keep(phonemeTensor)
-        tf.keep(accentTensor)
-        tf.keep(predicted)
-
-        return predicted
-      })
-
-      f0EnvsPromise = (f0Predicted.array() as Promise<number[][]>)
-      volEnvsPromise = (volPredicted.array() as Promise<number[][]>)
-
-      Promise.all([f0EnvsPromise, volEnvsPromise])
-      .finally(() => {
-        phonemeTensor.dispose()
-        accentTensor.dispose()
-        f0Predicted.dispose()
-        volPredicted.dispose()
-      })
-    }
+    f0EnvsPromise
+    .finally(() => {
+      phonemeTensor.dispose()
+      accentTensor.dispose()
+      f0Predicted.dispose()
+    })
 
     const promise = new Promise<Float32Array>((resolve, reject) => {
-      let waveVolAdjusted: tf.Tensor | null = null
+      const speed = config.speed
+      const numAdjustmentSec = 0.1
+      const waveLen = int(fs * ((duration / speed) + numAdjustmentSec))
 
-      Promise.all([f0EnvsPromise, volEnvsPromise])
-      .then(([f0Envs, volEnvs]) => {
-        if (!useSpecifiedEnvs) {
-          if (this.f0NormMax === null) {
-            throw new Error(
-              `f0 norm max is null, call "${this.synthesizeVoice.name}" after calling "${this.loadMlModels.name}"`
-            )
-          }
+      let wave = tf.zeros([waveLen])
+      tf.keep(wave)
 
-          const f0NormMax = this.f0NormMax
-          const pitch = config.pitch
-
-          f0Envs = f0Envs.map((env) => interpZeros(env).map((value) => value * f0NormMax * pitch))
-          volEnvs = volEnvs.map((env) => interpZeros(env))
+      f0EnvsPromise
+      .then((f0Envs) => {
+        if (this.f0NormMax === null) {
+          throw new Error(
+            `f0 norm max is null, call "${this.synthesizeVoice.name}" after calling "${this.loadMlModels.name}"`
+          )
         }
 
-        const envKeyData = this.genEnvKeyData(
-          analyzedData,
-          f0Envs,
-          volEnvs,
-          voice,
-          config.speed
-        )
+        const f0NormMax = this.f0NormMax
+        const pitch = config.pitch
+
+        f0Envs = f0Envs.map((env) => interpZeros(env).map((value) => value * f0NormMax * pitch))
 
         if (this.f0ModelBaseFreq === null) {
           throw new Error(
@@ -362,59 +301,135 @@ export class PoinoTalkEngine {
           )
         }
 
-        const lengths     = envKeyData.map(({length}) => length)
-        const times       = lengths.map((_, index, array) => sum(array.slice(0, index + 1)))
-        const duration    = sum(lengths)
-        const durationLen = int(fs * duration)
-        const f0Adapter   = voice.baseFreq / this.f0ModelBaseFreq
-        const f0EnvSeq    = envKeyData.flatMap(({f0Env}) => f0Env).map((value) => value * f0Adapter)
-        const volEnvSeq   = envKeyData.flatMap(({volEnv}) => volEnv)
+        const f0Adapter = voice.baseFreq / this.f0ModelBaseFreq
+        let envsIndex = 0
 
-        let baseWave: tf.Tensor
+        const dataArray: {
+          envKeyData: EnvKeyData[]
+          f0Seg: z.infer<typeof f0SegSchema>
+        }[] = analyzedData
+        .map(({kana, accent, lengths}, index) => {
+          const envLenData = voice.kanas[kana]
+          if (envLenData === undefined) return null
 
-        if (config.whisper) {
-          baseWave = this.genRandWave(durationLen)
-        } else {
-          baseWave = this.genSinWave(durationLen, fs, f0EnvSeq)
+          const lengthsLen = lengths.length
+          const phonemeDataLen = this.kanaDataToPhonemeData([{ kana, accent, lengths }]).length
+          if (lengthsLen !== phonemeDataLen) {
+            throw new Error(`number of elements in "lengths" of number ${index} in "data" is invalid`)
+          }
+
+          const begin = envsIndex
+          const end   = begin + lengthsLen
+
+          envsIndex = end
+
+          const f0EnvsSliced  = f0Envs.slice(begin, end)
+
+          const f0Seg =
+            f0EnvsSliced.flatMap((env, i) => {
+              const num = Math.ceil(fs * (lengths[i] / speed))
+              return resample(env, num)
+            })
+            .map((value) => value * f0Adapter)
+
+          const length = sum(lengths)
+          let kanaDuration = length / speed
+
+          const envKeyData: EnvKeyData[] = envLenData.map((data) => {
+            const envKey = data.envKey
+            const envLen = data.len
+
+            let phonemeDuration: number
+
+            if (envLen === null) {
+              phonemeDuration = kanaDuration
+            } else {
+              phonemeDuration = envLen / speed
+            }
+
+            if (phonemeDuration > kanaDuration) {
+              phonemeDuration = kanaDuration
+            }
+
+            kanaDuration -= phonemeDuration
+
+            if (phonemeDuration < 0) {
+              phonemeDuration = 0
+            }
+
+            return {
+              envKey: envKey,
+              length: phonemeDuration
+            }
+          })
+
+          return {
+            envKeyData,
+            f0Seg
+          }
+        })
+        .filter((value) => value !== null)
+
+        const volume = config.volume
+        const whisper = (config.whisper === true)
+        let prevEnd = 0
+
+        for (let i = 0; i < dataArray.length; i++) {
+          const data             = dataArray[i]
+          const lengths          = data.envKeyData.map(({length}) => length)
+          const numAdjustmentSec = 0.01
+          const duration         = sum(lengths)
+          const durationAdjusted = duration + numAdjustmentSec
+          const length           = int(fs * duration)
+          const lengthAdjusted   = int(fs * durationAdjusted)
+          const timingRatios     = lengths.map((_, index, array) => sum(array.slice(0, index)) / durationAdjusted)
+          const f0Seg            = data.f0Seg
+          const phonemes         = data.envKeyData.map(({envKey}) => envKey)
+          const begin            = prevEnd
+          const end              = begin + lengthAdjusted
+
+          wave = tf.tidy(() => {
+            const segment = this.genWave(
+              lengthAdjusted,
+              f0Seg,
+              volume,
+              timingRatios,
+              phonemes,
+              voice,
+              whisper
+            )
+
+            const padBefore = tf.zeros([begin])
+            const padAfter = tf.zeros([Math.max(waveLen - end, 0)])
+
+            const merged = tf.add(
+              wave,
+              tf.concat([
+                padBefore,
+                segment,
+                padAfter
+              ]).slice(0, waveLen)
+            )
+
+            wave.dispose()
+            segment.dispose()
+            padBefore.dispose()
+            padAfter.dispose()
+
+            return merged
+          })
+
+          prevEnd += length
         }
 
-        const waveSegs = this.applyEnvToWave(
-          durationLen,
-          baseWave,
-          times,
-          envKeyData,
-          voice
-        )
-
-        const volSrc = this.genVolSrc(
-          waveSegs.shape[0],
-          voice.segLen,
-          voice.hopLen,
-          volEnvSeq
-        )
-
-        const waveSegsVolAdapted = this.adaptVolume(waveSegs, volSrc)
-
-        const wave = tf.tidy(() => {
-          const wave = seg2seq(waveSegsVolAdapted, voice.segLen, voice.hopLen)
-          waveSegsVolAdapted.dispose()
-          return wave
-        })
-
-        waveVolAdjusted = this.adjustVolume(wave, config.volume)
-
-        return waveVolAdjusted.data() as Promise<Float32Array>
+        return wave.data() as Promise<Float32Array>
       })
       .then((wave) => {
-        if (raw) {
-          resolve(wave)
-        } else {
-          const wav = raw2wav<Float32Array>(wave, fs, channels, dtype)
-          resolve(wav)
-        }
+        const wav = raw2wav<Float32Array>(wave, fs, channels, dtype)
+        resolve(wav)
       })
       .catch(reject)
-      .finally(() => waveVolAdjusted?.dispose())
+      .finally(() => wave?.dispose())
     })
 
     return promise
@@ -534,318 +549,290 @@ export class PoinoTalkEngine {
     return tensor
   }
 
-  private genEnvKeyData(
-    data: KanaData[],
-    f0Envs: number[][],
-    volEnvs: number[][],
+  private genWave(
+    length: number,
+    f0Seg: number[],
+    volume: number,
+    timingRatios: number[],
+    phonemes: EnvKeyEnum[],
     voice: SpeakerVoice,
-    speed: number
+    whisper: boolean
   ) {
-    const phonemeDataLen = this.kanaDataToPhonemeData(data).length
-    const f0EnvsLen = f0Envs.length
-    const volEnvsLen = volEnvs.length
+    const segLen  = voice.segLen
+    const fs      = voice.fs
+    const specLen = ((segLen % 2) === 0) ? ((segLen / 2) + 1) : ((segLen + 1) / 2)
 
-    if (f0EnvsLen !== phonemeDataLen) {
-      throw new Error('length of "f0Env" does not match the length of "phonemeData"')
-    }
-
-    if (volEnvsLen !== phonemeDataLen) {
-      throw new Error('length of "volEnv" does not match the length of "phonemeData"')
-    }
-
-    speakerVoiceSchema.parse(voice)
-    synthConfigSchema.shape.speed.parse(speed)
-
-    const fs = voice.fs
-    let envsIndex = 0
-
-    const envKeyData: EnvKeyData[] = data.flatMap(({kana, accent, lengths}, index) => {
-      const envLenData = voice.kanas[kana]
-      if (envLenData === undefined) return []
-
-      const lengthsLen = lengths.length
-      const phonemeDataLen = this.kanaDataToPhonemeData([{ kana, accent, lengths }]).length
-      if (lengthsLen !== phonemeDataLen) {
-        throw new Error(`number of elements in "lengths" of number ${index} in "data" is invalid`)
-      }
-
-      const begin = envsIndex
-      const end   = begin + lengthsLen
-
-      envsIndex = end
-
-      const f0EnvsSliced  = f0Envs.slice(begin, end)
-      const volEnvsSliced = volEnvs.slice(begin, end)
-
-      const f0Env = f0EnvsSliced.flatMap((env, index) => {
-        const num = Math.ceil(fs * (lengths[index] / speed))
-        return resample(env, num)
-      })
-
-      const volEnv = volEnvsSliced.flatMap((env, index) => {
-        const num = Math.ceil(fs * (lengths[index] / speed))
-        return resample(env, num)
-      })
-
-      const length = sum(lengths)
-      let kanaLen = length / speed
-      let envIndex = 0
-
-      return envLenData.map(({envKey, len}) => {
-        let phonemeLen: number
-
-        if (len === null) {
-          phonemeLen = kanaLen
-        } else {
-          phonemeLen = len / speed
-        }
-
-        if (phonemeLen > kanaLen) {
-          phonemeLen = kanaLen
-        }
-
-        kanaLen -= phonemeLen
-
-        if (phonemeLen < 0) {
-          phonemeLen = 0
-        }
-
-        const num   = Math.ceil(fs * phonemeLen)
-        const begin = envIndex
-        const end   = begin + num
-
-        envIndex = end
-
-        const f0EnvSliced  = f0Env.slice(begin, end)
-        const volEnvSliced = volEnv.slice(begin, end)
-
-        return {
-          envKey: envKey,
-          length: phonemeLen,
-          f0Env:  f0EnvSliced,
-          volEnv: volEnvSliced
-        }
-      })
-    })
-
-    return envKeyData
-  }
-
-  private genRandWave(length: number) {
-    const min = -1
-    const max = 1
-    return tf.randomUniform([length], min, max)
-  }
-
-  private genSinWave(
-    length: number,
-    fs: number,
-    f0EnvSeq: number[]
-  ) {
-    const segLen = int(fs * 0.01)
-    const hopLen = segLen
-
-    const segsLen = computeSeq2segLen(length, segLen, hopLen)
-
-    const baseFreq = avg(f0EnvSeq)
-    const numFreqs = int((fs / 2) / baseFreq)
-    const freqs    = [...new Array(numFreqs)].map((_, index) => baseFreq * (index + 1))
-
-    const freqMags: number[] = []
-
-    for (let i = 0; i < segsLen; i++) {
-      const begin = hopLen * i
-      const end = begin + segLen
-      const f0Env = f0EnvSeq.slice(begin, end)
-      const f0Avg = avg(f0Env)
-      freqMags.push(f0Avg / baseFreq)
-    }
-
-    const freqsTensor = tf.tidy(() => {
-      return tf.add([freqs], [0]).reshape([-1, 1])
-    })
-
-    const sinWaveSegs: tf.Tensor[] = []
-    let prevEnd = 0
-
-    for (let i = 0; i < segsLen; i++) {
-      const begin = prevEnd
-      const end = begin + (segLen / fs * freqMags[i])
-      const time = linspace(begin, end, segLen + 1).slice(1)
-      const sinWave = tf.tidy(() => {
-        return tf.sin(
-          tf.mul(
-            tf.mul([2 * Math.PI], freqsTensor),
-            time
-          )
-        )
-      })
-      sinWaveSegs.push(sinWave)
-      prevEnd = time.slice(-1)[0]
-    }
-
-    freqsTensor.dispose()
-
-    return tf.tidy(() => {
-      const sinWaves = tf.concat(sinWaveSegs, 1)
-      const sinWave = tf.sum(sinWaves, 0)
-      const sinWaveDivided = tf.divNoNan(sinWave, [numFreqs])
-
-      tf.dispose(sinWaveSegs)
-      sinWaves.dispose()
-      sinWave.dispose()
-
-      return sinWaveDivided
-    })
-  }
-
-  private applyEnvToWave(
-    length: number,
-    wave: tf.Tensor,
-    times: number[],
-    envKeyData: EnvKeyData[],
-    voice: SpeakerVoice
-  ) {
-    const segLen = voice.segLen
-    const hopLen = voice.hopLen
-    const fs     = voice.fs
-
-    const segsLen = computeSeq2segLen(length, segLen, hopLen)
-
-    const waveSegs = tf.tidy(() => {
-      const segs = seq2seg(wave, segLen, hopLen)
-      const win = tf.signal.hammingWindow(segLen)
-      const multiplied = tf.mul(segs, win)
-
-      wave.dispose()
-      segs.dispose()
-      win.dispose()
-
-      return multiplied
-    })
-
-    const specSegs = tf.tidy(() => {
-      const comp = tf.cast(waveSegs, 'complex64')
-      const fft = tf.spectral.fft(comp)
-
-      waveSegs.dispose()
-      comp.dispose()
-
-      return fft
-    })
-
-    const envs = Object.fromEntries(
-      Object.keys(voice.envelopes).map((key) => {
+    const specs = Object.fromEntries(
+      Object.keys(voice.envelopes)
+      .filter((key) => phonemes.includes(key as EnvKeyEnum))
+      .map((key) => {
         const envKey = key as EnvKeyEnum
         const env = voice.envelopes[envKey]
 
         if (env === undefined) {
           return [
             envKey,
-            linspace(0, 0, int(segLen / 2))
+            linspace(0, 0, specLen)
           ]
         }
 
         const x: number[] = []
         const y: number[] = []
-        const z = linspace(0, fs / 2, int(segLen / 2))
+        const z = linspace(0, fs / 2, specLen)
 
         env.forEach((point) => {
           x.push(point[0])
-          y.push(Math.pow(10, point[1]) - 1)
+          y.push(point[1])
         })
 
         const interpolated = interp(x, y, z)
 
         return [
           envKey,
-          [
-            ...interpolated,
-            ...interpolated.reverse()
-          ]
+          interpolated
         ]
       })
     ) as { [key in EnvKeyEnum]: number[] }
 
-    const envSegs: number[][] = []
+    const voicedApRatio = 12000 / fs // 24k => 0.5, 48k => 0.25
+    const voicedApTanhMag = 20
 
-    for (let i = 0; i < segsLen; i++) {
-      const begin = hopLen * i
-      const beginSec = begin / fs
+    const voicedAp = tf.tidy(() => {
+      return tf.div(
+        tf.add(
+          tf.tanh(
+            tf.linspace(
+              -voicedApRatio * voicedApTanhMag,
+              (1 - voicedApRatio) * voicedApTanhMag,
+              specLen
+            )
+          ),
+          1
+        ),
+        2
+      )
+    })
 
-      const timeApproximate = times.find((time) => time >= beginSec)
-      if (timeApproximate === undefined) continue
+    const unvoicedAp = tf.ones([specLen])
 
-      const indexApproximate = times.indexOf(timeApproximate)
-      if (indexApproximate === -1) continue
+    const eqRatio = 2400 / fs // 24k => 0.1, 48k => 0.05
+    const eqTanhMag = 20
+    const eqAdd = 0.1
+    const eqMul = 1 - eqAdd
 
-      const envKey = envKeyData[indexApproximate].envKey
-      const env = envs[envKey]
+    const eq = tf.tidy(() => {
+      return tf.add(
+        tf.mul(
+          tf.div(
+            tf.add(
+              tf.tanh(
+                tf.linspace(
+                  eqRatio * eqTanhMag,
+                  -(1 - eqRatio) * eqTanhMag,
+                  specLen
+                )
+              ),
+              1
+            ),
+            2
+          ),
+          eqMul
+        ),
+        eqAdd
+      )
+    })
 
-      envSegs.push(env)
+    let wave = tf.zeros([length])
+    let position = 0
+
+    const window = tf.signal.hammingWindow(segLen)
+
+    while (true) {
+      const ratio = position / length
+
+      const ratioApproximate = timingRatios.findLast((_ratio) => _ratio <= ratio)
+      if (ratioApproximate === undefined) break
+
+      const indexApproximate = timingRatios.indexOf(ratioApproximate)
+      if (indexApproximate === -1) break
+
+      const envKey = phonemes[indexApproximate]
+
+      const spec = tf.tidy(() => {
+        return tf.sub(
+          tf.pow(
+            10,
+            tf.mul(
+              specs[envKey],
+              eq
+            )
+          ),
+          1
+        )
+      })
+
+      const isUnvoiced = ['k', 's', 'h'].includes(envKey)
+      const ap = whisper ? unvoicedAp : isUnvoiced ? unvoicedAp : voicedAp
+
+      const phase = tf.tidy(() => {
+        return tf.mul(
+          tf.randomUniform([specLen], 0, 2 * Math.PI),
+          ap
+        )
+      })
+
+      const segment = tf.tidy(() => {
+        const ifft = tf.reshape(
+          tf.spectral.irfft(
+            tf.complex(
+              tf.mul(spec, tf.cos(phase)),
+              tf.mul(spec, tf.sin(phase))
+            )
+          ),
+          [segLen]
+        )
+
+        const edited = tf.mul(
+          tf.concat([
+            ifft.slice(segLen / 2, segLen / 2),
+            ifft.slice(0,          segLen / 2)
+          ]),
+          window
+        )
+
+        const max = tf.max(tf.abs(edited))
+        const adjuster = tf.divNoNan([1.0], max)
+        const adjusted = tf.mul(edited, adjuster)
+
+        spec.dispose()
+        phase.dispose()
+        ifft.dispose()
+        edited.dispose()
+        max.dispose()
+        adjuster.dispose()
+
+        return adjusted
+      })
+
+      wave = tf.tidy(() => {
+        const begin = position
+        const end = begin + segLen
+        const padBefore = tf.zeros([begin])
+        const padAfter = tf.zeros([length - end])
+        const merged = tf.add(
+          wave,
+          tf.concat([
+            padBefore,
+            segment,
+            padAfter
+          ])
+        )
+
+        wave.dispose()
+        segment.dispose()
+        padBefore.dispose()
+        padAfter.dispose()
+
+        return merged
+      })
+
+      position += Math.min(
+        int(fs / f0Seg[position]),
+        int(fs / 1)
+      )
+
+      if ((length - (position + 1)) <= segLen) {
+        break
+      }
     }
 
-    const envSegsTensor = tf.tensor(envSegs)
+    let volumes = tf.zeros([length])
+    let prevEnd = 0
 
-    return tf.tidy(() => {
-      const multiplied = tf.mul(specSegs, envSegsTensor)
-      const ifft = tf.spectral.ifft(multiplied)
-      const real = tf.real(ifft)
+    const firstEnvKeyIsConsonant = (
+      (phonemes.length > 1) && !['a', 'i', 'u', 'e', 'o'].includes(phonemes[0])
+    )
+    const filterLen = int(fs * 0.05)
 
-      specSegs.dispose()
-      envSegsTensor.dispose()
-      multiplied.dispose()
-      ifft.dispose()
+    for (let i = 0; i < phonemes.length; i++) {
+      const envKey = phonemes[i]
+      const ratio = (timingRatios.length > (i + 1)) ? timingRatios[i + 1] : 1.0
+      const volume = envKeyVolumes[envKey]
+      const isLastEnvKey = (i === (phonemes.length - 1))
+      const numAdjust = int(filterLen / 2)
+      const begin = prevEnd
+      const end = Math.max(
+        begin,
+        Math.min(
+          length,
+          (
+            int(length * ratio) +
+            ((firstEnvKeyIsConsonant && !isLastEnvKey) ? numAdjust : 0)
+          )
+        )
+      )
 
-      return real
+      volumes = tf.tidy(() => {
+        const padBefore = tf.zeros([begin])
+        const padAfter = tf.zeros([length - end])
+        const merged = tf.add(
+          volumes,
+          tf.concat([
+            padBefore,
+            tf.fill([end - begin], volume),
+            padAfter
+          ])
+        )
+
+        volumes.dispose()
+        padBefore.dispose()
+        padAfter.dispose()
+
+        return merged
+      })
+
+      prevEnd = end
+    }
+
+    volumes = tf.tidy(() => {
+      const reshaped = volumes.reshape([-1, 1]) as tf.Tensor2D
+      const filter = tf.signal.hammingWindow(filterLen).reshape([-1, 1, 1])
+      const adjusted = tf.divNoNan(filter, tf.sum(filter)) as tf.Tensor3D
+      const convolved = tf.conv1d(reshaped, adjusted, 1, 'same').reshape([-1])
+
+      volumes.dispose()
+      reshaped.dispose()
+      filter.dispose()
+      adjusted.dispose()
+
+      return convolved
     })
-  }
 
-  private genVolSrc(
-    segsLen: number,
-    segLen: number,
-    hopLen: number,
-    volEnvSeq: number[]
-  ) {
-    return tf.tidy(() => {
-      const durationLen = computeSeg2seqLen(segsLen, segLen, hopLen)
-      const volEnvSeqTensor = tf.tensor(volEnvSeq.slice(0, durationLen))
-      const volEnvSegs = seq2seg(volEnvSeqTensor, segLen, hopLen)
-
-      volEnvSeqTensor.dispose()
-
-      return volEnvSegs
+    wave = tf.tidy(() => {
+      return tf.mul(
+        wave,
+        volumes
+      )
     })
-  }
 
-  private adaptVolume(
-    waveSegs: tf.Tensor,
-    volSrc: tf.Tensor
-  ) {
-    return tf.tidy(() => {
-      const adapted = adaptVolume(waveSegs, volSrc)
-
-      waveSegs.dispose()
-      volSrc.dispose()
-
-      return adapted
-    })
-  }
-
-  private adjustVolume(
-    wave: tf.Tensor,
-    volume: number
-  ) {
-    return tf.tidy(() => {
+    wave = tf.tidy(() => {
       const waveMax = tf.max(tf.abs(wave))
-      const adapter = tf.divNoNan([volume], waveMax)
-      const multiplied = tf.mul(wave, adapter)
+      const adjuster = tf.divNoNan([volume], waveMax)
+      const adjusted = tf.mul(wave, adjuster)
 
       wave.dispose()
       waveMax.dispose()
-      adapter.dispose()
+      adjuster.dispose()
 
-      return multiplied
+      return adjusted
     })
+
+    voicedAp.dispose()
+    unvoicedAp.dispose()
+    eq.dispose()
+    window.dispose()
+    volumes.dispose()
+
+    return wave
   }
 }

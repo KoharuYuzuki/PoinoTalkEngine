@@ -391,6 +391,32 @@ export const envKeys = [
   'q'
 ] as const
 
+export const envKeyVolumes: Readonly<{
+  [key in typeof envKeys[number]]: number
+}> = {
+  'a': 1.00,
+  'i': 1.00,
+  'u': 1.00,
+  'e': 1.00,
+  'o': 1.00,
+  'k': 0.05,
+  's': 0.05,
+  't': 0.30,
+  'n': 1.00,
+  'h': 0.10,
+  'm': 1.00,
+  'y': 1.00,
+  'r': 1.00,
+  'w': 1.00,
+  'g': 0.30,
+  'z': 0.30,
+  'd': 0.30,
+  'b': 0.30,
+  'p': 0.30,
+  'v': 0.30,
+  'q': 1.00
+}
+
 export const accents = [
   'high',
   'low'
@@ -415,10 +441,10 @@ export const speakerIdEnumSchema = z.enum(speakerIds)
 
 export const lengthSchema  = z.number().min(0).max(10)
 export const lengthsSchema = z.array(lengthSchema)
-export const f0EnvSchema   = z.array(z.number().positive())
+export const f0SegSchema   = z.array(z.number().min(1))
 export const volEnvSchema  = z.array(z.number().nonnegative())
 
-export const pointXSchema = z.number().min(0).max(24000)
+export const pointXSchema = z.number().min(0).max(48000)
 export const pointYSchema = z.number().min(0).max(1)
 export const pointSchema  = z.tuple([pointXSchema, pointYSchema])
 export const pointsSchema = z.array(pointSchema)
@@ -442,8 +468,6 @@ export interface PhonemeData {
 export interface EnvKeyData {
   envKey: EnvKeyEnum
   length: z.infer<typeof lengthSchema>
-  f0Env:  z.infer<typeof f0EnvSchema>
-  volEnv: z.infer<typeof volEnvSchema>
 }
 
 export interface OptiDict {
@@ -454,6 +478,8 @@ export interface OptiDict {
 }
 
 export interface SpeakerVoice {
+  id:        SpeakerIdEnum
+  name:      string
   fs:        number
   segLen:    number
   hopLen:    number
@@ -494,9 +520,7 @@ export const phonemeDataArraySchema = z.array(
 export const envKeyDataArraySchema = z.array(
   z.object({
     envKey: envKeyEnumSchema,
-    length: lengthSchema,
-    f0Env:  f0EnvSchema,
-    volEnv: volEnvSchema
+    length: lengthSchema
   })
 )
 
@@ -511,6 +535,8 @@ export const optiDictSchema = z.record(
 )
 
 export const speakerVoiceSchema = z.object({
+  id:        speakerIdEnumSchema,
+  name:      z.string(),
   fs:        z.number().int().min(12000).max(48000),
   segLen:    z.number().int().min(120).refine(checkEven, evenMsg),
   hopLen:    z.number().int().min(30),

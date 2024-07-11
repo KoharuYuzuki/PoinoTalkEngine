@@ -4,9 +4,11 @@ import type { SpeakerVoice } from '../schemata'
 const fs = 24000
 
 export const laychieVoice: Readonly<SpeakerVoice> = {
+  id:       'laychie',
+  name:     'レイチー',
   fs:       fs,
-  segLen:   int(fs * 0.04),
-  hopLen:   int(fs * 0.04 / 2),
+  segLen:   int(fs * 0.01),
+  hopLen:   int(fs * 0.01 / 2),
   baseFreq: 400,
   envelopes: {
     a: [[0,0],[1,0.1],[100,0.1],[300,0.25],[400,0.62],[800,0.75],[1200,1],[1600,0.88],[2000,0.31],[2400,0.08],[2800,0.03],[3200,0.03],[3600,0.08],[4000,0.24],[5100,0.3],[6400,0.27],[8000,0.1],[10600,0.05],[12000,0]],
