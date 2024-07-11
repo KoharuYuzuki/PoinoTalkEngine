@@ -6,15 +6,15 @@
     "@types/bun": "latest"
   },
   "peerDependencies": {
-    "typescript": "^5.0.0"
+    "typescript": "^5.3.3"
   },
   "dependencies": {
-    "@tensorflow/tfjs": "^4.17.0",
-    "@tensorflow/tfjs-backend-webgl": "^4.17.0",
-    "@tensorflow/tfjs-backend-webgpu": "^4.17.0",
-    "@tensorflow/tfjs-node": "^4.17.0",
+    "@tensorflow/tfjs": "^4.20.0",
+    "@tensorflow/tfjs-backend-webgl": "^4.20.0",
+    "@tensorflow/tfjs-backend-webgpu": "^4.20.0",
+    "@tensorflow/tfjs-node": "^4.20.0",
     "openjlabel": "github:KoharuYuzuki/OpenJLabel.ts#v1.1.0",
     "pathe": "^1.1.2",
-    "zod": "^3.22.4"
+    "zod": "^3.23.8"
   }
 }
