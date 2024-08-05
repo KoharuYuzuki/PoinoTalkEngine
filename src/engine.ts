@@ -9,7 +9,7 @@ import type {
   PhonemeEnum, EnvKeyEnum, SpeakerVoice, SynthConfig
 } from './schemata'
 import {
-  isBrowser, canUseWebGPU, canUseWebGL, seq2seg,
+  isBrowser, canUseWebGPU, canUseWebGL, seq2seg, rfftfreq, argMin,
   raw2wav, interpZeros, resample, sum, int, linspace, interp
 } from './utils'
 import { systemDict } from './system-dict'
@@ -594,16 +594,16 @@ export class PoinoTalkEngine {
       })
     ) as { [key in EnvKeyEnum]: number[] }
 
-    const voicedApRatio = 12000 / fs // 24k => 0.5, 48k => 0.25
-    const voicedApTanhMag = 20
-
     const voicedAp = tf.tidy(() => {
+      const ratio = 12000 / fs // 24k => 0.5, 48k => 0.25
+      const tanhMag = 20
+
       return tf.div(
         tf.add(
           tf.tanh(
             tf.linspace(
-              -voicedApRatio * voicedApTanhMag,
-              (1 - voicedApRatio) * voicedApTanhMag,
+              -ratio * tanhMag,
+              (1 - ratio) * tanhMag,
               specLen
             )
           ),
@@ -615,20 +615,20 @@ export class PoinoTalkEngine {
 
     const unvoicedAp = tf.ones([specLen])
 
-    const eqRatio = 2400 / fs // 24k => 0.1, 48k => 0.05
-    const eqTanhMag = 20
-    const eqAdd = 0.1
-    const eqMul = 1 - eqAdd
+    const eq1 = tf.tidy(() => {
+      const ratio = 2400 / fs // 24k => 0.1, 48k => 0.05
+      const tanhMag = 20
+      const add = 0.1
+      const mul = 1 - add
 
-    const eq = tf.tidy(() => {
       return tf.add(
         tf.mul(
           tf.div(
             tf.add(
               tf.tanh(
                 tf.linspace(
-                  eqRatio * eqTanhMag,
-                  -(1 - eqRatio) * eqTanhMag,
+                  ratio * tanhMag,
+                  -(1 - ratio) * tanhMag,
                   specLen
                 )
               ),
@@ -636,10 +636,91 @@ export class PoinoTalkEngine {
             ),
             2
           ),
-          eqMul
+          mul
         ),
-        eqAdd
+        add
       )
+    })
+
+    const eq2 = tf.tidy(() => {
+      const rfftFreqs = rfftfreq(segLen, 1.0 / fs)
+
+      const eqRanges: {
+        begin: number
+        end:   number
+        value: number
+      }[] = [
+        {
+          begin: 600,
+          end:   800,
+          value: -1.0
+        },
+        {
+          begin: 1000,
+          end:   1200,
+          value: -1.5
+        },
+        {
+          begin: 2000,
+          end:   2200,
+          value: -1.2
+        },
+        {
+          begin: 5000,
+          end:   fs / 2,
+          value: -0.1
+        }
+      ]
+
+      const eqRangeIndices = eqRanges.map((range) => {
+        return {
+          begin: argMin(rfftFreqs.map((rfftFreq) => Math.abs(rfftFreq - range.begin))),
+          end:   argMin(rfftFreqs.map((rfftFreq) => Math.abs(rfftFreq - range.end))),
+          value: range.value
+        }
+      })
+
+      let eq = tf.zeros([specLen])
+
+      eqRangeIndices.forEach((range) => {
+        eq = tf.tidy(() => {
+          const begin = range.begin
+          const end   = range.end
+          const value = range.value
+
+          const padBefore = tf.zeros([begin])
+          const padAfter = tf.zeros([specLen - end])
+
+          const merged = tf.add(
+            eq,
+            tf.concat([
+              padBefore,
+              [...new Array(end - begin)].map(() => value),
+              padAfter
+            ])
+          )
+
+          padBefore.dispose()
+          padAfter.dispose()
+
+          return merged
+        })
+      })
+
+      const filterLen = int(specLen / 8)
+      const reshaped = eq.reshape([-1, 1]) as tf.Tensor2D
+      const filter = tf.signal.hammingWindow(filterLen).reshape([-1, 1, 1])
+      const adjusted = tf.divNoNan(filter, tf.sum(filter)) as tf.Tensor3D
+      const convolved = tf.conv1d(reshaped, adjusted, 1, 'same').reshape([-1])
+      const corrected = tf.add(convolved, [1.0])
+
+      eq.dispose()
+      reshaped.dispose()
+      filter.dispose()
+      adjusted.dispose()
+      convolved.dispose()
+
+      return corrected
     })
 
     let wave = tf.zeros([length])
@@ -663,9 +744,12 @@ export class PoinoTalkEngine {
           tf.pow(
             10,
             tf.mul(
-              specs[envKey],
-              eq
-            )
+              tf.mul(
+                specs[envKey],
+                eq1
+              ),
+              eq2
+            ),
           ),
           1
         )
@@ -834,7 +918,8 @@ export class PoinoTalkEngine {
 
     voicedAp.dispose()
     unvoicedAp.dispose()
-    eq.dispose()
+    eq1.dispose()
+    eq2.dispose()
     window.dispose()
 
     return wave

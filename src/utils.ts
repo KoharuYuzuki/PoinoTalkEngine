@@ -195,6 +195,11 @@ export function raw2wav <T> (
   return wav as T
 }
 
+export function rfftfreq (n: number, d: number) {
+  const N = Math.floor(n / 2) + 1
+  return [...new Array(N)].map((_, i) => i / (n * d))
+}
+
 export function interpZeros (data: number[]) {
   const cloned = structuredClone(data)
 
@@ -320,4 +325,22 @@ export function sum (x: number[]) {
 
 export function avg (x: number[]) {
   return sum(x) / x.length
+}
+
+export function argMax (x: number[]) {
+  return (
+    x
+    .map((value, index) => { return { value, index } })
+    .reduce((min, element) => (element.value > min.value) ? element : min)
+    .index
+  )
+}
+
+export function argMin (x: number[]) {
+  return (
+    x
+    .map((value, index) => { return { value, index } })
+    .reduce((max, element) => (element.value < max.value) ? element : max)
+    .index
+  )
 }
