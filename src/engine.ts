@@ -809,10 +809,14 @@ export class PoinoTalkEngine {
     })
 
     wave = tf.tidy(() => {
-      return tf.mul(
+      const adjusted = tf.mul(
         wave,
         volumes
       )
+
+      wave.dispose()
+
+      return adjusted
     })
 
     wave = tf.tidy(() => {
