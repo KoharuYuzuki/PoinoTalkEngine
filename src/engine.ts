@@ -815,6 +815,7 @@ export class PoinoTalkEngine {
       )
 
       wave.dispose()
+      volumes.dispose()
 
       return adjusted
     })
@@ -835,7 +836,6 @@ export class PoinoTalkEngine {
     unvoicedAp.dispose()
     eq.dispose()
     window.dispose()
-    volumes.dispose()
 
     return wave
   }
