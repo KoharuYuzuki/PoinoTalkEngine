@@ -412,7 +412,7 @@ export const envKeyVolumes: Readonly<{
   'z': 0.30,
   'd': 0.30,
   'b': 0.30,
-  'p': 0.30,
+  'p': 0.05,
   'v': 0.30,
   'q': 1.00
 }

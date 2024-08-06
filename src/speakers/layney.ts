@@ -76,23 +76,23 @@ export const layneyVoice: Readonly<SpeakerVoice> = {
     /* ================ */
 
     'さ': [
-      { envKey: 's', len: 0.08 },
+      { envKey: 's', len: 0.12 },
       { envKey: 'a', len: null }
     ],
     'し': [
-      { envKey: 's', len: 0.08 },
+      { envKey: 's', len: 0.12 },
       { envKey: 'i', len: null }
     ],
     'す': [
-      { envKey: 's', len: 0.08 },
+      { envKey: 's', len: 0.12 },
       { envKey: 'u', len: null }
     ],
     'せ': [
-      { envKey: 's', len: 0.08 },
+      { envKey: 's', len: 0.12 },
       { envKey: 'e', len: null }
     ],
     'そ': [
-      { envKey: 's', len: 0.08 },
+      { envKey: 's', len: 0.12 },
       { envKey: 'o', len: null }
     ],
 
@@ -346,23 +346,23 @@ export const layneyVoice: Readonly<SpeakerVoice> = {
     /* ================ */
 
     'ぱ': [
-      { envKey: 'p', len: 0.03 },
+      { envKey: 'p', len: 0.01 },
       { envKey: 'a', len: null }
     ],
     'ぴ': [
-      { envKey: 'p', len: 0.03 },
+      { envKey: 'p', len: 0.01 },
       { envKey: 'i', len: null }
     ],
     'ぷ': [
-      { envKey: 'p', len: 0.03 },
+      { envKey: 'p', len: 0.01 },
       { envKey: 'u', len: null }
     ],
     'ぺ': [
-      { envKey: 'p', len: 0.03 },
+      { envKey: 'p', len: 0.01 },
       { envKey: 'e', len: null }
     ],
     'ぽ': [
-      { envKey: 'p', len: 0.03 },
+      { envKey: 'p', len: 0.01 },
       { envKey: 'o', len: null }
     ],
 
