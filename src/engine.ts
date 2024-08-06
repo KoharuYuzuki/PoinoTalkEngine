@@ -377,9 +377,9 @@ export class PoinoTalkEngine {
         for (let i = 0; i < dataArray.length; i++) {
           const data             = dataArray[i]
           const lengths          = data.envKeyData.map(({length}) => length)
-          const numAdjustmentSec = 0.01
+          const adjustmentSec    = 0.01
           const duration         = sum(lengths)
-          const durationAdjusted = duration + numAdjustmentSec
+          const durationAdjusted = duration + adjustmentSec
           const length           = int(fs * duration)
           const lengthAdjusted   = int(fs * durationAdjusted)
           const timingRatios     = lengths.map((_, index, array) => sum(array.slice(0, index)) / durationAdjusted)
