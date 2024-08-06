@@ -740,19 +740,29 @@ export class PoinoTalkEngine {
       const envKey = phonemes[indexApproximate]
 
       const spec = tf.tidy(() => {
-        return tf.sub(
-          tf.pow(
-            10,
-            tf.mul(
-              tf.mul(
-                specs[envKey],
-                eq1
-              ),
-              eq2
+        if (whisper) {
+          return tf.sub(
+            tf.pow(
+              10,
+              specs[envKey]
             ),
-          ),
-          1
-        )
+            1
+          )
+        } else {
+          return tf.sub(
+            tf.pow(
+              10,
+              tf.mul(
+                tf.mul(
+                  specs[envKey],
+                  eq1
+                ),
+                eq2
+              )
+            ),
+            1
+          )
+        }
       })
 
       const isUnvoiced = ['k', 's', 'h'].includes(envKey)
@@ -831,66 +841,71 @@ export class PoinoTalkEngine {
     }
 
     let volumes = tf.zeros([length])
-    let prevEnd = 0
 
-    const firstEnvKeyIsConsonant = (
-      (phonemes.length > 1) && !['a', 'i', 'u', 'e', 'o'].includes(phonemes[0])
-    )
-    const filterLen = int(fs * 0.05)
+    if (whisper) {
+      volumes = tf.ones([length])
+    } else {
+      const firstEnvKeyIsConsonant = (
+        (phonemes.length > 1) && !['a', 'i', 'u', 'e', 'o'].includes(phonemes[0])
+      )
+      const filterLen = int(fs * 0.05)
 
-    for (let i = 0; i < phonemes.length; i++) {
-      const envKey = phonemes[i]
-      const ratio = (timingRatios.length > (i + 1)) ? timingRatios[i + 1] : 1.0
-      const volume = envKeyVolumes[envKey]
-      const isLastEnvKey = (i === (phonemes.length - 1))
-      const numAdjust = int(filterLen / 2)
-      const begin = prevEnd
-      const end = Math.max(
-        begin,
-        Math.min(
-          length,
-          (
-            int(length * ratio) +
-            ((firstEnvKeyIsConsonant && !isLastEnvKey) ? numAdjust : 0)
+      let prevEnd = 0
+
+      for (let i = 0; i < phonemes.length; i++) {
+        const envKey = phonemes[i]
+        const ratio = (timingRatios.length > (i + 1)) ? timingRatios[i + 1] : 1.0
+        const volume = envKeyVolumes[envKey]
+        const isLastEnvKey = (i === (phonemes.length - 1))
+        const numAdjust = int(filterLen / 2)
+        const begin = prevEnd
+        const end = Math.max(
+          begin,
+          Math.min(
+            length,
+            (
+              int(length * ratio) +
+              ((firstEnvKeyIsConsonant && !isLastEnvKey) ? numAdjust : 0)
+            )
           )
         )
-      )
+
+        volumes = tf.tidy(() => {
+          const padBefore = tf.zeros([begin])
+          const padAfter = tf.zeros([length - end])
+          const merged = tf.add(
+            volumes,
+            tf.concat([
+              padBefore,
+              tf.fill([end - begin], volume),
+              padAfter
+            ])
+          )
+
+          volumes.dispose()
+          padBefore.dispose()
+          padAfter.dispose()
+
+          return merged
+        })
+
+        prevEnd = end
+      }
 
       volumes = tf.tidy(() => {
-        const padBefore = tf.zeros([begin])
-        const padAfter = tf.zeros([length - end])
-        const merged = tf.add(
-          volumes,
-          tf.concat([
-            padBefore,
-            tf.fill([end - begin], volume),
-            padAfter
-          ])
-        )
+        const reshaped = volumes.reshape([-1, 1]) as tf.Tensor2D
+        const filter = tf.signal.hammingWindow(filterLen).reshape([-1, 1, 1])
+        const adjusted = tf.divNoNan(filter, tf.sum(filter)) as tf.Tensor3D
+        const convolved = tf.conv1d(reshaped, adjusted, 1, 'same').reshape([-1])
 
         volumes.dispose()
-        padBefore.dispose()
-        padAfter.dispose()
+        reshaped.dispose()
+        filter.dispose()
+        adjusted.dispose()
 
-        return merged
+        return convolved
       })
-
-      prevEnd = end
     }
-
-    volumes = tf.tidy(() => {
-      const reshaped = volumes.reshape([-1, 1]) as tf.Tensor2D
-      const filter = tf.signal.hammingWindow(filterLen).reshape([-1, 1, 1])
-      const adjusted = tf.divNoNan(filter, tf.sum(filter)) as tf.Tensor3D
-      const convolved = tf.conv1d(reshaped, adjusted, 1, 'same').reshape([-1])
-
-      volumes.dispose()
-      reshaped.dispose()
-      filter.dispose()
-      adjusted.dispose()
-
-      return convolved
-    })
 
     wave = tf.tidy(() => {
       const adjusted = tf.mul(
